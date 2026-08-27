@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(powershell -NoProfile -File \"C:\\\\Users\\\\Rümeysa\\\\dashboard-project\\\\_split_js.ps1\")",
+      "PowerShell(npx serve .)",
+      "PowerShell(node --check \"js\\\\05-data-engine.js\"; node --check \"js\\\\12-tab-img-renewal.js\"; node --check \"js\\\\13-filters.js\"; Write-Output \"SYNTAX_OK\")",
+      "PowerShell(node --check \"js\\\\01-config.js\"; node --check \"js\\\\12-tab-img-renewal.js\"; node --check \"js\\\\13-filters.js\"; node --check \"js\\\\05-data-engine.js\"; Write-Output \"ALL_OK\")"
+    ]
+  }
+}

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yenileme &amp; İptal Defteri</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="rail"></div>
+
+<header>
+  <div class="eyebrow"><span class="dot"></span>Weekly plan · haftalık abonelik döngüsü çözümleme</div>
+  <div class="header-row">
+    <div>
+      <h1>Yenileme <span class="amp">&amp;</span> İptal Defteri</h1>
+      <p class="sub">Her hafta yenilenen ve yenilenmeden iptal edilen aboneliklerin ilk hafta içindeki davranış farkını inceler. CSV'ni yükle (filtrelenmemiş <code style="color:var(--brass-dim);">combined_raw_events.csv</code> da olur), tara, ülke/OS/telefon modeline göre filtrele. Hiçbir veri bu sayfadan çıkmaz.</p>
+    </div>
+    <div class="stamps" aria-hidden="true">
+      <div class="stamp s-renew">Renewed</div>
+      <div class="stamp s-cancel">Cancelled</div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ================= UPLOAD & CONFIG ================= -->
+  <section class="panel">
+    <p class="explain" style="margin-top:0;">Dosyayı taradığında, uygulama önce her kullanıcının ilk <b>pro_success</b> (satın alma) zamanını (T0) buluyor; sonra T0'dan sonra ilk gerçekleşen olay <b>renewal</b> ise o kullanıcı <span class="k-renew">Yenileme grubuna</span>, <b>cancel</b> ise <span class="k-cancel">İptal grubuna</span> giriyor. Bu iki grup birbirini dışlar.</p>
+    <div class="upload-row">
+      <label class="filebtn">
+        CSV Dosyası Seç
+        <input type="file" id="fileInput" accept=".csv">
+      </label>
+      <span id="fileLabel">henüz dosya seçilmedi</span>
+    </div>
+
+    <div class="run-actions">
+      <button class="btn primary" id="scanBtn" disabled>1. Dosyayı Tara</button>
+      <button class="btn" id="resetBtn">Sıfırla</button>
+    </div>
+
+    <div id="cookingWrap">
+      <svg width="92" height="86" viewBox="0 0 92 86" aria-hidden="true">
+        <!-- buhar (firinin ustunden yukseliyor) -->
+        <path class="ov-steam s1" d="M32 16 q 2 -4 0 -8 q -2 -4 0 -7"/>
+        <path class="ov-steam s2" d="M46 15 q 2 -4 0 -8 q -2 -4 0 -7"/>
+        <path class="ov-steam s3" d="M60 16 q 2 -4 0 -8 q -2 -4 0 -7"/>
+        <!-- firin govdesi -->
+        <rect class="ov-line" x="10" y="22" width="72" height="56" rx="5"/>
+        <!-- kontrol dugmeleri -->
+        <circle class="ov-line" cx="22" cy="31" r="3"/>
+        <circle class="ov-line" cx="34" cy="31" r="3"/>
+        <line class="ov-dim" x1="58" y1="31" x2="72" y2="31"/>
+        <!-- firin cami -->
+        <rect class="ov-line" x="18" y="40" width="56" height="30" rx="4"/>
+        <!-- icerideki sicak isilti -->
+        <rect class="ov-glow" x="20" y="42" width="52" height="26" rx="3"/>
+        <!-- pisen yemek: kulplu guvec + kapak -->
+        <path class="ov-line" d="M30 62 h 32 a 3 3 0 0 0 3 -3 v -2 h -38 v 2 a 3 3 0 0 0 3 3 z"/>
+        <path class="ov-line" d="M32 57 q 14 -12 28 0"/>
+        <circle class="ov-line" cx="46" cy="49" r="1.6"/>
+        <!-- guvec kulplari -->
+        <path class="ov-dim" d="M26 58 q -3 0 -2 -3"/>
+        <path class="ov-dim" d="M66 58 q 3 0 2 -3"/>
+      </svg>
+      <div class="cooking-text">cooking<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+    </div>
+    <div id="progressWrap">
+      <div class="progressbar"><div id="progressFill"></div></div>
+      <div id="progressLabel">—</div>
+    </div>
+    <div id="log"></div>
+
+    <details>
+      <summary>Ayarlar (kolon / event adları, pencere süreleri)</summary>
+      <div class="cfg-grid">
+        <div class="cfg-field">
+          <label>User ID kolonları (virgülle)</label>
+          <input type="text" id="cfgUserIdCols" value="distinct_id,$user_id">
+        </div>
+        <div class="cfg-field">
+          <label>Zaman kolonları (virgülle)</label>
+          <input type="text" id="cfgTimeCols" value="time,timestamp">
+        </div>
+        <div class="cfg-field">
+          <label>pro_success event adı</label>
+          <input type="text" id="cfgProSuccess" value="pro_success">
+        </div>
+        <div class="cfg-field">
+          <label>Renewal event adı</label>
+          <input type="text" id="cfgRenewal" value="subscription_renewed">
+        </div>
+        <div class="cfg-field">
+          <label>Cancel event adı</label>
+          <input type="text" id="cfgCancel" value="subscription_renewal_cancelled">
+        </div>
+        <div class="cfg-field">
+          <label>Image generation event adı</label>
+          <input type="text" id="cfgImageGen" value="image_generation_complete">
+        </div>
+        <div class="cfg-field">
+          <label>Image generation FAILED event adı</label>
+          <input type="text" id="cfgImageGenFailed" value="image_generation_failed">
+        </div>
+        <div class="cfg-field">
+          <label>AI type kolonları (virgülle)</label>
+          <input type="text" id="cfgAiTypeCols" value="ai_type,model_type,generation_type,style_type">
+        </div>
+        <div class="cfg-field">
+          <label>Custom AI type'lar (ayrı incelenecek, virgülle)</label>
+          <input type="text" id="cfgCustomAi" value="custom_image_edit,custom-image-edit">
+        </div>
+        <div class="cfg-field">
+          <label>Coin kolonu</label>
+          <input type="text" id="cfgCoinsCol" value="current_coins">
+        </div>
+        <div class="cfg-field">
+          <label>Product ID kolonları (virgülle)</label>
+          <input type="text" id="cfgProductIdCols" value="product_id,vendor_product_id">
+        </div>
+        <div class="cfg-field">
+          <label>Trial tespiti — product_id içinde aranacak kelime</label>
+          <input type="text" id="cfgTrialKeyword" value="free">
+        </div>
+        <div class="cfg-field">
+          <label>Abone kanıtı sayılan ek event'ler (virgülle) — Renewal/Cancel event'lerine ek olarak</label>
+          <input type="text" id="cfgImpliedSubEvents" value="image_generation_completed,first_creation_completed">
+        </div>
+        <div class="cfg-field">
+          <label>Weekly keyword</label>
+          <input type="text" id="cfgWeeklyKeyword" value="weekly">
+        </div>
+        <div class="cfg-field">
+          <label>Pencere (gün, UTC takvim günü)</label>
+          <input type="number" id="cfgWindowDays" value="7">
+        </div>
+        <div class="cfg-field">
+          <label>Ek gözlem dilimi (saat, pencere sonrası)</label>
+          <input type="number" id="cfgDay8Hours" value="8">
+        </div>
+        <div class="cfg-field">
+          <label>Ülke kolonları (virgülle)</label>
+          <input type="text" id="cfgCountryCols" value="profile_country,mp_country_code">
+        </div>
+        <div class="cfg-field">
+          <label>OS kolonu</label>
+          <input type="text" id="cfgOsCol" value="$os">
+        </div>
+        <div class="cfg-field">
+          <label>Telefon modeli kolonları (virgülle)</label>
+          <input type="text" id="cfgModelCols" value="$model,device_model">
+        </div>
+      </div>
+      <div class="cfg-toggle">
+        <input type="checkbox" id="cfgOnlyWeekly" checked>
+        <label for="cfgOnlyWeekly" style="margin:0; text-transform:none; font-family:var(--sans); font-size:13px; color:var(--ink-dim);">Sadece weekly plan kullanıcılarını al</label>
+      </div>
+      <p style="font-size:11.5px; color:var(--ink-faint); margin-top:10px; font-family:var(--mono);">
+        Not: "Telefon modeli kolonları" varsayımı ($model, device_model) veri şeman farklıysa güncelle — taramadan sonra dağılım boş çıkarsa bu ilk kontrol edeceğin yer.
+      </p>
+      <p style="font-size:11.5px; color:var(--ink-faint); margin-top:6px; font-family:var(--mono);">
+        Veri temizleme: current_coins = -1 olan hücreler 0 kabul ediliyor; bunun dışındaki negatif değerler (-2, -50 vb.) anomali sayılıp null yapılıp hesaplamalara hiç dahil edilmiyor.
+      </p>
+    </details>
+  </section>
+
+  <!-- ================= FILTERS ================= -->
+  <section class="panel" id="filterSection" style="display:none;">
+    <div class="section-head">
+      <h2><b>2 ·</b> Demografik filtre</h2>
+      <span class="note">varsayılan: hepsi seçili</span>
+    </div>
+    <p class="explain">Her kullanıcının ülke/OS/telefon modeli, o kullanıcının tüm satırlarında <b>en sık görülen değer</b> alınarak belirlendi. Bir kutucuğu işaretini kaldırdığında o değere sahip kullanıcılar tüm grafiklerden anında çıkar — dosya yeniden okunmaz, sadece bellekteki hesap tekrar toplanır.</p>
+    <div class="filter-grid" id="filterGrid"></div>
+    <div class="run-actions">
+      <button class="btn" id="applyFilterBtn">Yeniden Hesapla (opsiyonel — filtreler zaten anında uygulanır)</button>
+    </div>
+  </section>
+
+  <!-- ================= SEKMELER ================= -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="tabMain">Genel Analiz</button>
+    <button class="tab-btn" data-tab="tabDay2">Gün 2 Analizi</button>
+    <button class="tab-btn" data-tab="tabGenFail">Generation Failed</button>
+    <button class="tab-btn" data-tab="tabCancelSignals">Cancel Sinyalleri</button>
+    <button class="tab-btn" data-tab="tabNonSub">Non-Subscription Users</button>
+    <button class="tab-btn" data-tab="tabImgRenewal">Görsel Sayısı → Yenileme</button>
+  </div>
+
+  <div class="tab-panel" id="tabMain">
+  <!-- ================= STATS ================= -->
+  <section id="statsSection" style="display:none;">
+    <div class="section-head">
+      <h2><b>Grup</b> özeti</h2>
+    </div>
+    <p class="explain">Bu sayfadaki tüm gruplar (Renewal ve Cancel), <b>data sürecinin herhangi bir anında <code>pro_success</code> (abonelik) event'i gerçekleşen</b> kullanıcılarla sınırlıdır — hiç <code>pro_success</code> üretmemiş kullanıcılar burada hiç görünmez (bkz. <b>Non-Subscription Users</b> sekmesi). Kart başlıklarındaki <b>"(filtreli)"</b> ibaresi bundan ayrı, yukarıdaki demografik (ülke/OS/telefon modeli) filtreyi ifade eder; <b>"filtresiz toplam"</b> bu demografik filtre uygulanmadan önceki, ama yine de yalnızca abone olan kullanıcılardan oluşan grup büyüklüğüdür.</p>
+    <p class="explain" style="border-left-color:var(--brass-dim);">Renewal/Cancel grup sayıları, her kullanıcı için T0'dan (ilk <code>pro_success</code>) sonra <b>ilk hafta (ilk abonelik döngüsü) içinde gerçekleşen ilk olaya</b> göre belirlenir: <b><code>subscription_renewed</code></b> önce gerçekleşirse kullanıcı Renewal grubuna, <b><code>subscription_renewal_cancelled</code></b> önce gerçekleşirse Cancel grubuna girer (event adları Ayarlar'dan değiştirilebilir, burada varsayılanlar yazılı). İki grup birbirini dışlar.</p>
+    <div class="stat-row" id="statRow"></div>
+  </section>
+
+  <!-- ================= GÖRSEL 1 ================= -->
+  <section id="visual1" style="display:none;">
+    <div class="section-head">
+      <h2><b>Görsel 1 ·</b> Son event günü, medyan min coin, medyan görsel sayısı</h2>
+      <span class="note">UTC takvim günü · son bar = pencere sonrası ek gözlem</span>
+    </div>
+    <p class="explain">Üst sıra: her kullanıcının pencere içindeki <b>son olayının</b> hangi takvim gününe denk geldiğini sayar — bu, kullanıcının ne zaman sessizleştiğinin (ya da <span class="k-cancel">iptal</span> ettiğinin) bir göstergesi. Orta sıra: o son güne düşen kullanıcıların, pencere boyunca gördükleri <b>en düşük</b> coin bakiyesinin medyanı. Alt sıra: aynı kullanıcıların ürettiği <b>görsel sayısının</b> medyanı. <span class="k-renew">Yenileme</span> grubunda pencere yenilemeye kadar kesilir; <span class="k-cancel">İptal</span> grubunda pencere sabit kalır (iptal sonrası da dönem sonuna kadar kullanım sürebilir).</p>
+    <p class="explain" style="border-left-color:var(--brass-dim);">Orta ve alt sıradaki barlarda <b>bir günün boş görünmesi ile o günün medyanının gerçekten 0 olması artık ayırt edilebilir</b>: hiç gözlem olmayan günler çubuksuz ve "veri yok" etiketiyle gösterilir. Ortadaki günlerin (2 ile pencere sonu arası) boş çıkması genelde bir hesaplama hatası değildir — bu satırlar kullanıcının <b>o güne özel</b> değil, pencere boyunca gördüğü tek bir min-coin/görsel-sayısı özetini, kullanıcının <b>son aktif olduğu güne</b> göre gruplar; çoğu kullanıcının son aktivitesi ya satın alma gününde (gün 1) ya da hafta sonunda yoğunlaştığı için ortadaki günlerde hiç kullanıcı düşmeyebilir.</p>
+    <div class="grid3x2" id="visual1Grid"></div>
+  </section>
+
+  <!-- ================= GÖRSEL 3 ================= -->
+  <section id="visual3" style="display:none;">
+    <div class="section-head">
+      <h2><b>Görsel 3 ·</b> İptal grubu: gerçek cancel olayı kaçıncı günde</h2>
+    </div>
+    <p class="explain">Görsel 1'deki "son aktivite günü" bir vekil ölçüttü; bu grafik <b>gerçek <span class="k-cancel">cancel</span> olayının kendisinin</b> T0'dan itibaren hangi takvim gününde tetiklendiğini gösteriyor. Popülasyon <b>t0 anında (pro_success) abone olan TÜM kullanıcılar</b> — yalnızca cancel grubu değil: cancel etmeyip <span class="k-renew">renewal</span> alanlar ayrı bir <b>"cancel etmedi (renewal)"</b> çubuğunda sayılıyor, böylece hiçbir kullanıcı sessizce düşmüyor.</p>
+    <p class="explain" style="border-left-color:var(--brass-dim);">Kod incelemesi: gün hesaplaması (<code>dayNumberUTC</code>) doğrudan gerçek cancel zaman damgası ile T0 arasındaki takvim günü farkına bakıyor, aradaki bir pencere kırpması ya da indeksleme hatası yok. <b>Önceki hata:</b> histogram yalnızca cancel grubu (<code>cancelT0Lookup</code>) üzerinden hesaplanıyordu — renewal grubu (cancel ETMEYENLER) hiç dolaşılmıyordu, bu yüzden çubukların toplamı asla toplam abone sayısına ulaşamıyordu. Düzeltme: popülasyon artık renewal ∪ cancel birleşimi (<code>allT0</code>); cancel etmeyenler "cancel etmedi (renewal)" çubuğuna, cancel zamanı t0'dan önce görünen ya da hiç bulunamayan (normalde olmaması gereken) uçlar da ayrı "anomali" çubuklarına yazılıyor. Grafiğin altında toplam doğrulaması gösteriliyor; sayılar tutmazsa (⚠ uyarısı ve konsol log'u) kod tekrar incelenmeli.</p>
+    <div class="chart-card" id="visual3Holder"></div>
+  </section>
+
+  <!-- ================= GÖRSEL 4 ================= -->
+  <section id="visual4" style="display:none;">
+    <div class="section-head">
+      <h2><b>Görsel 4 ·</b> Pencerenin son gününde ayrılanlar: kaç ayrı gün aktifti</h2>
+    </div>
+    <p class="explain">Sadece son güne düşen kullanıcılara bakıyoruz ve pencere boyunca kaç <b>farklı takvim gününde</b> en az bir olay ürettiklerini sayıyoruz. Değer 1'e yakınsa kullanıcı büyük ölçüde tek gün aktif olup sonra sessizleşmiş; değer pencere uzunluğuna yakınsa düzenli kullanmış ama son günde ayrılmış demektir.</p>
+    <div class="grid2" id="visual4Grid"></div>
+  </section>
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 5 ·</b> Abonelikte kalma eğrisi — Kaplan-Meier</h2>
+      </div>
+      <p class="explain">Oran karşılaştırması "ne zaman" sorusunu yutar; sağkalım eğrisi yutmaz. Her maruziyet grubu için <b>S(t) = t. güne kadar hâlâ abone kalma olasılığı</b>. Sansürleme doğru ele alınıyor: <span class="k-renew">renewal</span> alan kullanıcı o ana kadar iptal <b>etmemiştir</b>, o yüzden "iptal etti" değil <b>sansürlü</b> sayılır — aksi halde renewal'ı erken gerçekleşenler yapay olarak kötü görünürdü. Gölgeli alan %95 güven bandı (Greenwood varyansı, log-log dönüşümlü — bu yüzden bant hiçbir zaman 0-1 dışına taşmaz).</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Log-rank testi</b> eğrilerin tamamını karşılaştırır, tek bir güne bakmaz. Başlıktaki p değeri "bu gruplar aynı sağkalım dağılımından geliyor" hipotezini test eder. p küçükse eğriler gerçekten ayrışıyor; büyükse gördüğün fark örneklem gürültüsü olabilir.</p>
+      <div id="adv1Grid"></div>
+    </section>
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 6 ·</b> Günlük iptal hazardı</h2>
+      </div>
+      <p class="explain">Sağkalım eğrisi birikimli; hazard ise <b>koşullu</b>: "o günün başında hâlâ aboneyken, tam o gün iptal etme olasılığı". Riskin <b>hangi güne yığıldığını</b> ham sayılardan çok daha net gösterir, çünkü paydadan ayrılmış olanlar düşülür. Bir gün belirgin sivriyse müdahale penceresi <b>o günden bir-iki gün öncesidir</b>.</p>
+      <div id="adv2Grid"></div>
+    </section>
+  </div><!-- /tabMain -->
+
+  <div class="tab-panel" id="tabDay2" style="display:none;">
+  <!-- ================= SCATTER: GÜN1 COIN -> GÜN2 DÖNÜŞ ================= -->
+  <section id="scatterSection">
+    <div class="section-head">
+      <h2><b>Görsel 8 ·</b> Gün 1'de kalan coin → gün 2'de geri dönme oranı</h2>
+    </div>
+    <p class="explain">Her kullanıcının <b>gün 1 sonunda hesabında kalan</b> (o gün içindeki minimum) coin miktarına göre 10'luk dilimlere ayırıp, o dilimdeki kullanıcıların <b>yüzde kaçının gün 2'de de</b> en az bir olay ürettiğini gösteriyoruz. Örneğin x=0 noktası "gün 1 sonunda 0-9 coin kalan kullanıcıların gün 2'ye dönüş yüzdesi"ni temsil ediyor. Coin bitmesiyle geri dönmeme arasında bir ilişki var mı, burada görülüyor.</p>
+    <div class="grid2" id="scatterGrid"></div>
+  </section>
+
+  <!-- ================= GÖRSEL 7: GÜN2 CANCEL ORANI ================= -->
+  <section id="day2CancelSection">
+    <div class="section-head">
+      <h2><b>Görsel 9 ·</b> Gün 2'de coin bitince hemen cancel ediyorlar mı?</h2>
+    </div>
+    <p class="explain"><b>Gün 2'de uygulamaya giren</b> kullanıcıları, <b>gün 2 içinde hesapta kalan en düşük</b> coin miktarına göre 10'luk dilimlere ayırıp, her dilimde kullanıcıların <b>yüzde kaçının cancel event'inin TAM OLARAK gün 2'de</b> gerçekleştiğini gösteriyoruz. Eğri sola doğru (düşük coin) yükseliyorsa, bu "gün 2'de coin'in dibini görünce hemen cancel etme" trendinin nicel kanıtı olur — o zaman bu segmente "iptal etme, sana coin verelim" gibi bir teklif test etmek mantıklı olabilir. Grafik renewal/cancel grup ayrımından bağımsız, gün 2'de coin verisi olan tüm kullanıcıları kapsıyor.</p>
+    <p class="explain" style="border-left-color:var(--brass-dim);">X ekseni (kalan coin) görüntüleme amacıyla <b>0-200 aralığıyla sınırlandı</b> — bu aralığın dışındaki dilimler grafikte gösterilmez, ama hiçbir veri hesaplamadan çıkarılmadı (yalnızca eksen sınırı, veri filtresi değil).</p>
+    <div id="day2CancelGrid"></div>
+  </section>
+  </div><!-- /tabDay2 -->
+
+  <div class="tab-panel" id="tabGenFail" style="display:none;">
+    <section class="panel">
+      <div class="section-head"><h2><b>Segment ·</b> AI type ayrımı</h2></div>
+      <p class="explain"><code>custom_image_edit</code> ve <code>custom-image-edit</code> türleri yapısal olarak fail'e daha yatkın. Bunları diğer türlerle birlikte değerlendirmek yanıltıcı olur: "fail alanlar daha çok iptal ediyor" bulgusu aslında "custom edit kullananlar daha çok iptal ediyor"un yansıması olabilir. Bu yüzden bu sekmedeki <b>tüm analizler</b> segmente göre yeniden hesaplanır.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Kullanıcı, <b>ilk generation denemesinin türüne</b> göre segmente atanır — böylece her analiz kendi içinde tutarlı bir popülasyon üzerinde çalışır. Bir kullanıcı hem custom hem normal tür kullanmış olabilir; atama ilk denemeye bakar. Segmentleri tek tek gezip aynı bulgunun her ikisinde de sürüp sürmediğine bak: sürüyorsa fail etkisi gerçek, yalnızca birinde varsa etki o türe özgü.</p>
+      <div class="inline-ctrl">
+        <label>Segment
+          <select id="aiSegment">
+            <option value="all">Tümü</option>
+            <option value="custom">Yalnızca custom image edit</option>
+            <option value="other">Yalnızca diğer türler</option>
+            <option value="none">Hiç generation denemesi olmayanlar</option>
+          </select>
+        </label>
+        <span class="ctrl-hint" id="aiSegNote">—</span>
+      </div>
+    </section>
+    <section>
+      <div class="section-head">
+        <h2><b>Kurgu ·</b> Maruziyet grupları</h2>
+      </div>
+      <p class="explain">Her kullanıcıyı, penceresi içindeki <b>ilk generation denemesine</b> göre dört gruba ayırıyoruz: <span class="k-renew">A</span> — ilk denemesi başarılı; <b>B1</b> — ilk denemesi fail ama sonradan başarmış; <span class="k-cancel">B2</span> — ilk denemesi fail, hiç başaramamış; <b>C</b> — hiç deneme yapmamış. C'yi ayrı tutmak şart: hiç denemeyenler "başarılı" grubuna karışırsa A'nın cancel oranı yapay olarak şişer ve fail'in etkisi silinir. Sonuç ölçütü diğer sekmelerle aynı: kullanıcının <b>renewal</b> mı yoksa <b>cancel</b> grubuna mı düştüğü.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Fail oranı düşük olduğu için B2 grubu küçük kalabilir; bu yüzden her orana <b>%95 Wilson güven aralığı</b> ve <b>n</b> ekledim. İki grubun aralıkları üst üste biniyorsa aradaki fark <b>yorumlanamaz</b> — gürültüyü trend sanmamak için bu çubuklara bak. Ayrıca bu gözlemsel bir analiz: fark bulunsa bile "fail iptale yol açıyor" değil, "fail alanlarda iptal daha yüksek" diyebiliriz.</p>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 11 ·</b> Cancel grubuna düşme oranı</h2>
+      </div>
+      <p class="explain">Ana bulgu. Her maruziyet grubunda kullanıcıların yüzde kaçı ilk haftayı <b>cancel</b> grubunda kapatmış. <span class="k-cancel">B2</span> barı <span class="k-renew">A</span>'dan belirgin yüksekse ve aralıklar ayrışıyorsa, hipotezin destekleniyor demektir.</p>
+      <div id="gf1Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 12 ·</b> Gün 2'ye dönüş oranı</h2>
+      </div>
+      <p class="explain">Cancel resmi bir aksiyon; <b>geri dönmemek</b> daha erken ve daha hassas bir terk sinyali. Gözlem penceresi gün 2 başlamadan biten kullanıcılar (ör. renewal'ı gün 1'de gerçekleşenler) <b>hariç tutuldu</b> — onlar için "döndü mü" sorusu ölçülemez, "dönmedi" saymak fail grubunu haksız yere kötü gösterirdi.</p>
+      <div id="gf2Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 13 ·</b> Son aktivite günü dağılımı</h2>
+      </div>
+      <p class="explain">Fail alanlar daha <b>erken</b> mi sessizleşiyor? Grup büyüklükleri çok farklı olduğu için ham sayı değil, <b>grup içi yüzde</b> gösteriliyor — paneller böylece karşılaştırılabilir. "Hiç deneme yok" grubu burada gösterilmiyor: bu sekmedeki kullanıcılar zaten abone, yani neredeyse hepsi en az bir görsel üretimi deniyor — bu grup pratikte boş çıktığı için gösterge değeri yok.</p>
+      <div class="grid2" id="gf3Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 14 ·</b> İlk fail → cancel arası süre</h2>
+      </div>
+      <p class="explain">İlk denemesi fail olup cancel grubuna düşenler arasında, fail'den sonra iptale kadar geçen gün sayısı. Kütle <b>0-1 gün</b> aralığında toplanıyorsa nedensel bağ çok daha inandırıcı olur; süre günlere yayılıyorsa iptalin başka sebepleri ağır basıyor demektir.</p>
+      <div id="gf4Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2><b>Görsel 15 ·</b> Doz-yanıt: fail sayısı → cancel oranı</h2>
+      </div>
+      <p class="explain">Fail sayısı arttıkça cancel oranı <b>monoton</b> yükseliyorsa bulgu güçlenir. Ama dikkat: çok deneyen kullanıcının fail görme olasılığı da yüksektir, yani bu grafik <b>kullanım yoğunluğuyla karışık</b> bir sinyal taşır. Görsel 11 bu sapmadan bağımsızdır (herkeste tam 1 gözlem: ilk deneme), o yüzden çelişirlerse Görsel 11'e güven.</p>
+      <div id="gf5Grid"></div>
+    </section>
+    
+    <section>
+      <div class="section-head"><h2><b>Görsel 16 ·</b> Failler hangi AI type'ta yoğunlaşıyor</h2></div>
+      <p class="explain">İki grafik. <b>Birincisi</b> ham fail sayısı — çok kullanılan bir tür doğal olarak öne çıkar, tek başına yanıltıcıdır. <b>İkincisi</b> fail <b>yüzdesi</b> (fail ÷ toplam deneme); az kullanılan ama sürekli patlayan bir tür ancak burada görünür. Alttaki tabloda ayrıca her türün <b>ilk denemede fail alan kullanıcı</b> sayısı da var — kullanıcı başına tek gözlem olduğu için kullanım yoğunluğu sapmasından arınmıştır.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Bölümde <b>iki ayrı tablo</b> var ve kapsamları farklı — karıştırılırsa sayılar çelişkili görünür. <b>İlk hafta tablosu:</b> yalnızca renewal/cancel grubuna atanmış kullanıcıların 7 günlük penceresi; demografik filtre ve segment seçimi uygulanır. <b>Tüm zamanlar tablosu:</b> dosyadaki her generation olayı; hiçbir filtre uygulanmaz. Aynı türün iki tabloda farklı sayı göstermesi normaldir ve her tablonun başlığında kapsamı yazılıdır.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Tüm zamanlar tablosunda <b>★</b> işaretli türler, genel fail oranının 1,5 katından fazlasını gösteren ve en az 100 denemesi olanlardır — gerçekten sorunlu adaylar bunlar. "Tüm faillerin payı" sütunu ise o türün toplam fail hacmindeki ağırlığını verir: bir tür yüksek oranlı olabilir ama az kullanıldığı için toplam etkisi küçük kalabilir. Müdahale önceliği için ikisine birlikte bakmak gerekir. Deneme sayısı 100'ün altındaki türlerde oran oynak olduğu için soluk gösterilir.</p>
+      <div id="gf6Grid"></div>
+    </section>
+    <section>
+      <div class="section-head"><h2><b>Görsel 17 ·</b> AI type'ların zaman çizelgesi</h2></div>
+      <p class="explain">AI type'lar dönemsel olarak yenilendiği için, bir türün fail oranı yüksek çıkması onun <b>hangi dönemde</b> aktif olduğuyla ilgili olabilir. Bu iki grafik, fail oranı <b>%10'un üzerinde</b> olan türler arasından <b>en çok kullanılan ilk 15 ai_type'ı</b> zaman ekseninde gösterir — her tür farklı bir renk. <b>En çok kullanılan 15 ai_type gösteriliyor.</b></p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Üstteki grafik <b>kullanımı</b>, alttaki <b>failleri</b> gösterir; aynı renkler, aynı eksen. İkisini karşılaştır: bir tür kullanımda olduğu <b>tüm dönem boyunca</b> fail veriyorsa yapısal bir sorun var demektir. Yalnızca belirli bir aralıkta fail veriyorsa o döneme özgü bir arıza (sürüm hatası, sağlayıcı kesintisi) söz konusu olabilir — bu ikisi çok farklı müdahaleler gerektirir.</p>
+      <div id="gf7Grid"></div>
+    </section>
+  </div><!-- /tabGenFail -->
+
+  <div class="tab-panel" id="tabCancelSignals" style="display:none;">
+    <section class="panel">
+      <div class="section-head"><h2><b>Kurgu ·</b> Cancel öncesi davranış</h2></div>
+      <p class="explain">Abonelik iptali uygulama dışında (store'da) yapılıyor, ama iptali <b>düşünen</b> kullanıcı büyük ihtimalle önce uygulamada bazı ekranlara giriyor. Burada iptalden hemen önceki davranışı arıyoruz. Pencereyi saat yerine <b>olay sayısı</b> ile tanımlıyoruz: yoğun kullanıcı 6 saatte 200 olay üretir, seyrek kullanıcı 5 olay — olay sayısı sabitlenince her kullanıcı için <b>eşit derinlikte</b> iki pencere karşılaştırılmış olur. Sinyal event'i olarak <code>contact_us_click</code>, <code>settings_button_clicked</code>, <code>rate_app</code> gibi, iptal niyetini erken haber verebilecek event'ler seçilebilir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Bir uyarı: <code>subscription_renewal_cancelled</code> store webhook'unun düştüğü andır, kullanıcının iptal butonuna bastığı an değil. Aradaki gecikmede üretilen olaylar vaka penceresine karışabilir — olay penceresi bunu <b>çözmez</b>, yalnızca gecikme varyansına karşı daha dayanıklıdır. Ters funnel'da son olaylar hep masum görünüyorsa (ör. sadece <code>app_open</code>) gecikme şüphesi güçlenir.</p>
+      <p class="mini-note">Ayarlar bu sekmede tek bir yerde toplanmıyor — her kontrol, etkilediği grafiğin hemen üstünde.</p>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 18 ·</b> Event kataloğu</h2></div>
+      <p class="explain">Şemayı bilmeden funnel kurulamaz. Hangi olaylar var, ne sıklıkta, kaç kullanıcıda — <code>settings</code> benzeri aday ekranları burada göreceksin. "Kullanıcı %" yalnızca en sık 60 olay için hesaplanır (bellek sınırı).</p>
+      <div id="cs1Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 19 ·</b> Teşhis: pencere gerçekte ne kadar sürüyor</h2></div>
+      <p class="explain">Pencereyi saat yerine <b>olay sayısı</b> ile tanımladık — bu, yoğun ve seyrek kullanıcıyı eşitlediği için doğru seçim. Ama bir bedeli var: X olay bir kullanıcıda 20 dakika, başka birinde 4 gün sürebilir. İkinci durumda "iptalden hemen önce" dediğimiz şey aslında "geçen hafta" olur ve tüm çerçeve çöker.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Bu yüzden önce buraya bak: <b>medyan saatler mertebesindeyse</b> Görsel 20'deki sonuçlar sağlam. <b>1 günü aşıyorsa</b> X'i düşür — ek faydası da var, X küçülünce daha az kullanıcı elenir ve tablo daha temsili olur.</p>
+    <div class="inline-ctrl">
+      <label>X (pencere başına olay)<input type="number" id="csX" value="20" min="2" max="100"></label>
+      <label class="wide">Sayma dışı bırakılacak eventler (virgülle)
+        <input type="text" id="csExclude" placeholder="ör. home_view, session_start"></label>
+      <span class="ctrl-hint">Görsel 19, 20 ve 21'i birlikte etkiler</span>
+    </div>
+      <div id="cs2Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 20 ·</b> Öncü sinyal sıralaması (kontrol kollu)</h2></div>
+      <p class="explain">Her kullanıcının <b>iptalden önceki son X olayı</b> (vaka) ile <b>ondan önceki X olayı</b> (kontrol) karşılaştırılır. Kullanıcı <b>kendi kontrolü</b> olduğu için ülke, cihaz, genel aktiflik gibi kişi düzeyindeki karıştırıcılar düşer. <b>b</b> = sadece vaka penceresinde görüldü, <b>c</b> = sadece kontrolde. Eşleştirilmiş veri olduğu için McNemar testi kullanılıyor.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Neden kontrol kolu var:</b> düz case-crossover'ın bilinen zayıflığı <b>zaman eğilimi yanlılığıdır</b>. Faturalandırma günü sabit olduğu için <b>herkes</b> — yenileyecek olan da — dönem sonuna yaklaşırken aboneliğine bakıyor olabilir. O zaman iptal edenlerde artış görürsün ama bu takvimin etkisidir, iptal sinyali değil.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Bu yüzden aynı hesap <b>yenileyen kullanıcılar</b> için de yapılıyor (çapa = yenileme anı). <b>Düzeltilmiş OR = iptal OR ÷ yenileme OR.</b> Yenileme kolunda da OR yüksekse sinyal takvim etkisidir ve düzeltilmiş değer 1'e yaklaşır. Tablo düzeltilmiş OR'a göre sıralı — <b>asıl bakılacak sütun bu</b>. Yenileme kolunda çok az veri varsa hücre soluk gösterilir; düzeltmeye güvenme.</p>
+    <div id="cs3Grid"></div>
+    </section>
+
+        <section>
+      <div class="section-head"><h2><b>Görsel 21 ·</b> Kullanıcı tanımlı funnel</h2></div>
+      <p class="explain">Yukarıdan seçtiğin adımlar, <b>ilk görülme zamanına göre sıralı</b> tamamlanmış sayılır (2. adım 1. adımdan önce olmuşsa funnel orada kesilir). Cancel ve renewal grubu üst üste çizilir — aradaki açıklık, o yolun iptal niyetine özgü olup olmadığını gösterir.</p>
+    <div class="inline-ctrl">
+      <label>1. adım<select id="csF1"></select></label>
+      <label>2. adım<select id="csF2"></select></label>
+      <label>3. adım<select id="csF3"></select></label>
+      <label>4. adım<select id="csF4"></select></label>
+    </div>
+      <div id="cs5Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 22 ·</b> Sinyali yapanlar vs tüm kullanıcılar</h2></div>
+      <p class="explain">Sinyal eğrisi tek başına yorumlanamaz — bir kıyas noktası gerekir. Bu yüzden <b>filtresiz eğri</b> (tüm kullanıcılar) da çizildi. İki eğri arasındaki açıklık, o davranışın gerçekten daha hızlı bir iptale işaret edip etmediğini gösterir. Karşılaştırma tutarlı olsun diye <b>her iki eğri de T0'dan (satın alma anından) başlar</b>.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">İki uyarı. <b>Birincisi:</b> filtresiz eğri sinyali yapanları da içinde barındırır (alt küme ilişkisi), bu yüzden gerçek fark gösterilenden biraz büyüktür. <b>İkincisi — ölümsüz zaman yanlılığı:</b> sinyali yapan kullanıcı, o olayı üretebilmek için o ana kadar zaten abone kalmak zorundaydı. Bu, sinyal grubunun erken dönem sağkalımını yapay olarak yükseltir; yani eğrilerin baştaki yakınlığı gerçek farkı <b>olduğundan küçük</b> gösterir.</p>
+      <p class="explain">Müdahale penceresi için başlıktaki <b>"sinyalden iptale medyan süre"</b> değerine bak: saatler mertebesindeyse push bildirimi yetişmez, uygulama içi anlık müdahale gerekir.</p>
+    <div class="inline-ctrl">
+      <label class="wide">Sinyal eventi<select id="csSignal"></select></label>
+      <span class="ctrl-hint">Görsel 22, 23, 26 ve 27'yi birlikte etkiler</span>
+    </div>
+      <div id="cs6Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 23 ·</b> Olayı yapanlar vs yapmayanlar: iptal oranı</h2></div>
+      <p class="explain">Seçilen olayı <b>en az bir kez</b> yapanlar ile hiç yapmayanların iptal oranı, güven aralıklarıyla. Buradaki "iptal", <b>ilk hafta (7 günlük gözlem penceresi) içinde cancel grubuna düşmüş olmak</b> demektir — kullanıcı renewal almadan önce iptal etmişse bu gruptadır. Sabit bir saat ufku değil.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Taban oran zaten yüksekse mutlak fark küçük görünür; o yüzden <b>lift</b> değerine bak. Ayrıca bu bir ilişki ölçüsüdür: olayı yapanlarda iptal daha yüksek olabilir ama bu, olayın iptale <b>yol açtığı</b> anlamına gelmez.</p>
+      <div id="cs7Grid"></div>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Ters yönlü bakış (altta):</b> yukarıdaki soru "olayı yapanların yüzde kaçı iptal ediyor" idi. Aşağıdaki, "iptal edenlerin yüzde kaçı, iptalden ÖNCEKİ aynı gözlem penceresinde bu olayı yapmış" sorusunu sorar — yön tersine çevrilmiş, aynı sinyal olayı ve aynı pencere kullanılır.</p>
+      <div id="cs7RevGrid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 24 ·</b> Olay kombinasyonu → iptal oranı</h2></div>
+      <p class="explain">Tek tek olaylar yerine <b>birlikte görülme</b>. Son N olayda seçtiğin olaylardan hangileri varsa, o kombinasyondaki kullanıcıların iptal oranı. Payda hem iptal edenleri hem yenileyenleri kapsar (yenileyenler için çapa = yenileme anı), yani bu gerçek bir olasılık — Görsel 19'daki gibi sadece iptal edenler içinde bir karşılaştırma değil.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>"Beklenen" sütunu:</b> iki olay birbirinden bağımsız olsaydı o hücrede kaç kişi olurdu. Gözlenen sayı bundan belirgin yüksekse, bu olayların birlikte görülmesi tesadüf değildir — kendi başına bir bulgu. <b>Kat sütunu</b> taban orana göre kazancı gösterir; güven aralığı 1'i içeriyorsa gerçek bir kazanç olmayabilir. <b>⚠ işaretli satırlarda n&lt;30</b>, orana değil aralığa bak.</p>
+      <div class="inline-ctrl">
+        <label>Olay 1<select id="csC1"></select></label>
+        <label>Olay 2<select id="csC2"></select></label>
+        <label>Olay 3 (ops.)<select id="csC3"></select></label>
+        <label>Pencere (olay)<input type="number" id="csComboN" value="15" min="2" max="200"></label>
+      </div>
+      <div id="cs8Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 25 ·</b> Sinyalden sonra iptal riski</h2></div>
+      <p class="explain">Seçtiğin olayı <b>herhangi bir anda</b> yapan kullanıcı, bundan sonra ne olasılıkla iptal ediyor? Aynı soru <b>iki farklı ölçekte</b> cevaplanıyor: kaç <b>olay</b> içinde ve kaç <b>dakika</b> içinde. İkisi farklı işe yarar — olay ölçeği "kaç adım sonra" der ve kullanım yoğunluğundan bağımsızdır; süre ölçeği doğrudan müdahale penceresini verir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Hesap Kaplan-Meier ile yapılıyor çünkü iptal etmeyenler <b>sansürlü</b>: onları "iptal etmedi" diye atmak riski düşük, "iptal etti" saymak yüksek gösterirdi. Çapa olarak olayın <b>ilk gerçekleşmesi</b> alınıyor — son gerçekleşme seçilseydi geleceğe bakmış olurduk, çünkü "iptalden hemen önceki tıklama" zaten tanımı gereği iptale yakındır.</p>
+      <div class="inline-ctrl">
+        <label class="wide">Olay<select id="csRiskEvent"></select></label>
+        <label>Olay ufku<input type="number" id="csRiskEvents" value="20" min="1" max="500"></label>
+        <label>Dakika ufku<input type="number" id="csRiskMinutes" value="120" min="1" max="10080"></label>
+      </div>
+      <div class="grid2" id="cs9Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 26 ·</b> Optimum pencere — sinyalden iptale mesafe dağılımı</h2>
+        <span class="note">Görsel 25'teki olay seçicisini kullanır</span>
+      </div>
+      <p class="explain">Görsel 25 birikimli eğriyi verir ("ne kadarı yakalanır"); bu grafik <b>dağılımın kendisini</b> gösterir ve pencere seçmek için daha doğrudandır. Sinyali yapıp <b>sonrasında iptal eden</b> kullanıcılar için: iptal, sinyalden kaç <b>olay</b> ve kaç <b>dakika</b> sonra gerçekleşti?</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Yüzdelik tablosu asıl cevabı verir.</b> "p90 = 25 olay" ise 25'lik bir pencere, sinyalden sonra gelen iptallerin %90'ını kapsar. Pencereyi büyütmek kapsamı artırır ama tetikleyiciyi geç ve bulanık yapar; p75 ile p90 arası genelde makul bir denge.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Önemli sınır:</b> bu dağılım <b>koşulludur</b> — yalnızca iptal edenleri kapsar. "İptal edenlerin %90'ı 25 olay içinde iptal etti" der; "sinyali yapanların %90'ı iptal eder" DEMEZ. O oran için Görsel 25'teki birikimli eğriye bak.</p>
+      <div class="inline-ctrl">
+        <label>Olay bin genişliği<input type="number" id="csDistEventBin" value="1" min="1" max="50"></label>
+        <label>Olay ekseni üst sınır<input type="number" id="csDistEventCap" value="50" min="5" max="1000"></label>
+        <label>Dakika bin genişliği<input type="number" id="csDistMinuteBin" value="5" min="1" max="240"></label>
+        <label>Dakika ekseni üst sınır<input type="number" id="csDistMinuteCap" value="120" min="5" max="20160"></label>
+        <span class="ctrl-hint">Grafikler yatay kaydırılabilir</span>
+      </div>
+      <div id="cs10Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 27 ·</b> Sinyal hangi günde yapılırsa daha riskli</h2>
+        <span class="note">Görsel 22'deki sinyal seçicisini kullanır</span>
+      </div>
+      <p class="explain">İki ayrı soru. <b>Üstteki grafik:</b> bu olay döngünün hangi günlerinde yapılıyor — yoğunlaşma nerede. <b>Alttaki grafik:</b> olayı o günde yapanların iptal oranı ne. İkincisi asıl sorunun cevabı: 5. günde destek arayan mı, 7. günde arayan mı daha çok iptal ediyor?</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Alt grafikte her kullanıcı olayı <b>ilk yaptığı güne</b> atanır — aksi halde birden fazla gün aktif olanlar çift sayılırdı. Güven aralıkları üst üste biniyorsa günler arasındaki fark yorumlanamaz; özellikle az kullanıcılı günlerde aralıklar geniş çıkar.</p>
+      <div id="cs11Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 28 ·</b> Kullanıcıyı bu olaya iten ne oldu</h2></div>
+      <p class="explain"><code>contact_us_click</code> güçlü bir iptal sinyali olarak çıktı — ama <b>neden</b> destek arıyorlar? Bu grafik, seçilen olayın ilk gerçekleşmesinden hemen <b>önceki N olayın</b> dağılımını gösterir. Bozuk bir özellik, tekrarlayan bir fail ya da bir paywall karşılaşması burada görünebilir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">İki grafik var: <b>ilki</b> önceki N olayın tamamını toplar, <b>ikincisi</b> yalnızca bir adım öncesine bakar ve daha keskindir. Yorumlarken dikkat: sıradan bir gezinme olayı burada da yüksek çıkar. Anlamlı olan, bu oranın genel event kataloğundaki orandan <b>belirgin yüksek</b> olmasıdır — kıyas için Görsel 18'deki katalog yüzdelerine bak.</p>
+      <div class="inline-ctrl">
+        <label>Kaç olay geriye bakılsın<input type="number" id="csPrecN" value="10" min="1" max="50"></label>
+      </div>
+      <div class="ignore-panel">
+        <div class="ignore-head">
+          <h4>Yoksayılacak olaylar</h4>
+          <span class="ctrl-hint">tik atarak zorunlu/gürültülü olayları bu görseldeki iki grafikten ve dökümü tablosundan çıkar</span>
+        </div>
+        <div class="filter-list" id="csPrecIgnoreBox"></div>
+      </div>
+      <div id="cs12Grid"></div>
+    </section>
+  </div><!-- /tabCancelSignals -->
+
+
+  <div class="tab-panel" id="tabNonSub" style="display:none;">
+    <section class="panel">
+      <div class="section-head"><h2><b>Kurgu ·</b> Hiç abone olmayanlar</h2></div>
+      <p class="explain">Bu sekme, veri süresi boyunca <b>hiç <code>pro_success</code> üretmemiş</b> kullanıcıları inceler. Bu grup diğer tüm sekmelerde <b>görünmez</b> — renewal ve cancel grupları yalnızca satın alanlardan oluşur. Oysa huninin en geniş basamağı burasıdır ve çoğu zaman en büyük kayıp da burada yaşanır.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Üç uyarı. <b>Birincisi:</b> "abone olmadı" tespiti weekly filtresi <b>uygulanmadan</b> yapılır — yıllık plan alan biri yanlışlıkla bu gruba düşmesin diye. <b>İkincisi:</b> bu sekme yukarıdaki <b>demografik filtrelerden etkilenmez</b>, çünkü o filtreler renewal/cancel gruplarına atanmış kullanıcıların ülke/OS bilgisine dayanır — abone olmayanlar o grupların dışındadır. <b>Üçüncüsü:</b> dosyada <code>pro_success</code> satırı olmasa da, veri başlangıcından önce satın almış olabilecek kullanıcılar aşağıdaki Görsel 33b'deki düzeltmeyle abone tarafına geçiriliyor — aksi halde bunlar bu sekmede "abone olmayanlar bile abonelere özgü şeyler yapıyor" gibi yanlış bir görüntü yaratırdı.</p>
+      <p class="mini-note">Önceden filtrelenmiş bir dosya yüklediysen (ör. yalnızca pro kullanıcılar) bu sekme boş çıkar. Ham dosyayı yükle.</p>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Kurgu ·</b> Yeniden etiketleme (yanlış sınıflandırma düzeltmesi)</h2></div>
+      <p class="explain">Bazı "abone olmayan" etiketli kullanıcılar, normalde sadece abonelerin yapabileceği event'leri üretiyor olabilir — bu, veri kalitesi sorununa (yanlış sınıflandırma) işaret eder. Aşağıda işaretlenen event'i yapan <b>herhangi bir</b> kullanıcı — o an abone olmayan etiketli olsa bile — bu sekmedeki tüm abone-olmayan analizlerinden <b>tamamen çıkarılır</b> (abone sayılır). Görsel 33b'deki düzeltmeden farkı: o sabit bir event listesi kullanır, bu ise dilediğin herhangi bir event'i seçmene izin verir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Kapsam notu: kullanıcı sayıları ve oranları (toplam kullanıcı, aktif gün, süre, geri dönüş, dönüşüm oranı) bu seçime göre tam olarak yeniden hesaplanır. Gün bazlı olay bileşimi (Görsel 39) ham event sayıları üzerinden çalıştığı için bu seçimden etkilenmez.</p>
+      <div class="ignore-panel">
+        <div class="ignore-head">
+          <h4>Aboneye özgü olduğu düşünülen event'ler</h4>
+          <span class="ctrl-hint">tik atarak, bu event'i yapan herkesi abone say — varsayılan olarak hiçbiri işaretli değil</span>
+        </div>
+        <div class="filter-list" id="nsReclassifyBox"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 33b ·</b> Veri öncesi abonelik kanıtı düzeltmesi</h2></div>
+      <p class="explain">Dosya belirli bir tarih aralığını kapsar; bir kullanıcı o aralıktan <b>önce</b> satın almış olabilir — bu durumda <code>pro_success</code> satırı dosyada hiç görünmez, ama <code>subscription_renewed</code>, <code>subscription_renewal_cancelled</code> gibi yalnızca abonelerin üretebileceği event'ler dosyada olabilir. Bu kullanıcılar düzeltilmezse "abone olmayan" grubuna karışır ve o grupta normalde görünmemesi gereken aboneye özgü davranışlar ortaya çıkar.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Düzeltme: <code>subscription_renewed</code> / <code>subscription_renewal_cancelled</code> event'lerine ek olarak, Ayarlar panelinden tanımlanan ek event'leri (varsayılan: <code>image_generation_completed</code>, <code>first_creation_completed</code>) üreten her kullanıcı — <code>pro_success</code>'u olmasa bile — <b>abone</b> tarafına geçirilir.</p>
+      <div id="nsImpliedGrid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 34 ·</b> Trial dışlama özeti</h2></div>
+      <p class="explain">Veri döneminin bir kısmında ücretsiz deneme verilmiş. Trial kullanan biri <code>pro_success</code> üretmediği halde abonelere özgü ekranlara erişebiliyor — bu grupta kalırsa "abone olmayanlar şunu yapıyor" bulgularını kirletir. Bu yüzden <code>product_id</code> veya <code>vendor_product_id</code> alanında <b>"free"</b> geçen kullanıcılar <b>her iki gruptan da</b> çıkarılır: abone sayılamazlar (satın alma yok), abone olmayan da sayılamazlar (abone davranışı var).</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Aranan kelime Ayarlar panelinden değiştirilebilir. Alttaki tabloda <b>hangi ürün kimliklerinin eşleştiği</b> tek tek listelenir — tespitin doğru çalıştığını buradan gözle doğrulayabilirsin. Eşleşme sıfır çıkarsa ya dosyada trial yoktur ya da anahtar kelime yanlıştır; tablo boşsa ürün kimliklerine bakıp doğru kelimeyi bulman gerekir. Bu sayı tarama biterken <b>işlem günlüğüne</b> de yazılır.</p>
+      <div id="ns0Grid"></div>
+    </section>
+    <section>
+      <div class="section-head"><h2><b>Görsel 35 ·</b> Genel görünüm</h2></div>
+      <p class="explain">Kaç kullanıcı hiç satın alma yapmadan gitti, dönüşüm oranı ne, ve bunların ne kadarı <b>tek gün</b> aktif olup kayboldu. Son sayı kritik: yüksekse sorun fiyatta ya da abonelik akışında değil, <b>ilk deneyimde</b> demektir.</p>
+      <div id="ns1Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 36 ·</b> Hangi olayları yapıyorlar</h2></div>
+      <p class="explain">Abone olmayanların davranış profili. Her çubuk, bu kullanıcıların yüzde kaçının o olayı <b>en az bir kez</b> yaptığını gösterir. Özellikle bakılacak yer: paywall/pro ekranını görenlerin oranı ile görsel üretenlerin oranı. Üretim yüksek ama satın alma yoksa değer algısı oluşmuş ama fiyat engel; üretim de düşükse kullanıcı ürünü hiç deneyememiş demektir.</p>
+      <div class="inline-ctrl">
+        <label>Grafikte kaç olay<input type="number" id="nsTopN" value="15" min="3" max="40"></label>
+        <span class="ctrl-hint">Tabloda ilk 60 olay listelenir</span>
+      </div>
+      <div class="ignore-panel">
+        <div class="ignore-head">
+          <h4>Yoksayılacak olaylar</h4>
+          <span class="ctrl-hint">tik atarak zorunlu/gürültülü olayları grafikten çıkar</span>
+        </div>
+        <div class="filter-list" id="nsIgnoreBox"></div>
+      </div>
+      <div id="ns2Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 37 ·</b> Ne kadar süre aktif kaldılar</h2></div>
+      <p class="explain">İki farklı ölçü. <b>Aktif gün sayısı</b>: kaç ayrı takvim gününde olay ürettiler. <b>İlk–son olay arası</b>: takvim olarak ne kadar uzun bir döneme yayıldılar. İkisi farklı şey söyler — aktif günü 2 ama yayılımı 30 gün olan kullanıcı, bir ay arayla iki kez uğramış demektir.</p>
+      <div id="ns3Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 38 ·</b> Geri dönenler: ilk gün ne yaptılar</h2></div>
+      <p class="explain">Asıl soru: abone olmadığı halde <b>ertesi gün tekrar gelen</b> kullanıcılar, ilk günlerinde ne yaptı? Fark yaratan spesifik bir davranış varsa oraya kampanya yerleştirilebilir.</p>
+      <p class="explain">Yöntem: her kullanıcının <b>ilk gününde</b> yaptığı olaylar tespit edilir, sonra o olayı yapanların dönüş oranı <b>yapmayanlarla</b> karşılaştırılır. Lift = yapanların oranı ÷ yapmayanların oranı. Tabloda arama kutusu var; ★ işaretli satırlar hem lift'i 1,2'nin üzerinde hem güven aralığı taban oranın üstünde kalanlar.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Matris</b> daha geniş bir resim verir: satırlar ilk gün yapılan olay, sütunlar kendi ilk gününden sonraki günler, hücreler o gün hâlâ aktif olma oranı. En üstteki <b>taban satırıyla</b> karşılaştır — bir satır tabandan belirgin koyuysa o davranış kalıcılıkla ilişkilidir. Sağdaki n küçükse renk yanıltıcı olabilir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);">Nedensellik uyarısı: bu ilişkisel bir analizdir. Bir davranışı yapanların daha çok dönmesi, o davranışın <b>dönüşe yol açtığı</b> anlamına gelmez — muhtemelen zaten daha ilgili kullanıcılar o davranışı yapıyor. Kampanyayı test ederken kontrol grubu bırakmak şart.</p>
+      <div id="ns4Grid"></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2><b>Görsel 39 ·</b> Gün gün olay bileşimi — abone vs abone olmayan</h2></div>
+      <p class="explain">Her kullanıcının <b>kendi ilk günü</b> gün 1 sayılır; böylece farklı tarihlerde gelen kullanıcılar aynı eksende karşılaştırılabilir. İlk 5 gün tek tek, sonrası <b>gün 6–30</b> olarak tek grafikte toplanır. Her grafikte o günün en çok yapılan olayları, iki grup yan yana: <span class="k-cancel">kırmızı abone</span>, <span class="k-renew">yeşil abone olmayan</span>.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Y ekseni ham sayı değil, oran.</b> Grup büyüklükleri çok farklı olduğu için ham sayı karşılaştırılamazdı — her grup kendi o günkü olay hacmine göre %100'e normalize edilir. Bu yüzden okuma şöyle olmalı: "abonelerin o günkü etkinliğinin %X'i bu olaydı". İki grup arasındaki açıklık, davranışın gruba özgü olup olmadığını gösterir; tablodaki <b>Fark</b> sütunu bunu sayıyla verir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Önemli bir seçilim etkisi:</b> gün 1 herkesi kapsar, ama sonraki günlerde yalnızca <b>geri dönmüş</b> kullanıcılar bulunur — gelmeyenin o gün olayı yoktur. Yani gün 3'teki abone olmayan grup, gün 1'dekinden çok daha bağlı bir alt kümedir. Günler arası değişimi "davranış değişti" diye okumadan önce bunu hesaba kat; değişimin bir kısmı popülasyonun kendisinin değişmesinden gelir.</p>
+      <div class="inline-ctrl">
+        <label>Grafik başına kaç olay<input type="number" id="nsDayTopN" value="10" min="3" max="25"></label>
+        <span class="ctrl-hint">sıralama iki grubun yüzdelerinin toplamına göre</span>
+      </div>
+      <div class="ignore-panel">
+        <div class="ignore-head">
+          <h4>Yoksayılacak olaylar</h4>
+          <span class="ctrl-hint">tik atarak zorunlu/gürültülü olayları grafiklerden çıkar — yüzdeler değişmez, sadece görünüm sadeleşir</span>
+        </div>
+        <div class="filter-list" id="nsDayIgnoreBox"></div>
+      </div>
+      <div id="ns5Grid"></div>
+    </section>
+  </div><!-- /tabNonSub -->
+
+  <div class="tab-panel" id="tabImgRenewal" style="display:none;">
+    <section class="panel">
+      <div class="section-head"><h2><b>Kurgu ·</b> Çok görsel üretmek yenilemeyi artırıyor mu?</h2></div>
+      <p class="explain">İlk 7 gün içinde (satın alma ile o hafta içindeki yenileme ya da iptal arasındaki süre) kaç <b>başarılı görsel</b> ürettiğine göre kullanıcılar gruplanır; grafik her grupta yüzde kaçının <b>cancel</b> ettiğini gösterir. <b>İlk 7 gün içindeki üretim sayısına göre cancel oranı.</b> Üzerine, üretim sayısı arttıkça cancel olasılığının nasıl değiştiğini tahmin eden bir model eğrisi ve cancel oranının en belirgin şekilde değiştiği eşik nokta eklenmiştir.</p>
+      <p class="explain" style="border-left-color:var(--brass-dim);"><b>Beklenen yön:</b> ürün değeri gerçekten kullanımdan geliyorsa, hiç görsel üretmeyenlerin cancel oranı en yüksek, çok üretenlerin en düşük olmalı. Eğri düzse (veya tersse) bu beklenti bu veri setinde desteklenmiyor demektir. <b>Dikkat:</b> bu ilişkiseldir, nedensellik göstermez — zaten yenileyecek olan kullanıcı, üretim yenilemeye yol açtığı için değil, zaten daha bağlı bir kullanıcı olduğu için de daha çok üretiyor olabilir. <b>n&lt;30</b> olan gruplar † ile işaretlenir ve soluk gösterilir — küçük örneklem, dikkatli yorumla.</p>
+      <div id="imgRenewalGrid"></div>
+    </section>
+  </div><!-- /tabImgRenewal -->
+
+  <div class="empty" id="emptyState">Henüz bir tarama yapılmadı. Yukarıdan CSV dosyanı seç ve "1. Dosyayı Tara"ya bas.</div>
+
+</main>
+
+<footer>
+  Tarama sırasında (Pass 1 + Pass 2) tüm kullanıcılar için ülke/OS/model, T0/renewal/cancel zamanları VE gün bucket/min coin/image sayısı tek seferde hesaplanıp önbelleğe alınır. Filtre değiştirdikçe dosya tekrar okunmaz — sadece bellek içi Map filtreleme + agregasyon çalışır, bu yüzden anında güncellenir. Sadece ilk tarama, büyük dosyalarda (milyonlarca satır) birkaç dakika sürebilir.
+</footer>
+
+
+<script src="js/01-config.js"></script>
+<script src="js/02-csv-parser.js"></script>
+<script src="js/03-stats.js"></script>
+<script src="js/04-charts.js"></script>
+<script src="js/05-data-engine.js"></script>
+<script src="js/06-tab-general.js"></script>
+<script src="js/07-tab-day2.js"></script>
+<script src="js/08-tab-genfail.js"></script>
+<script src="js/09-tab-cancel-signals.js"></script>
+<script src="js/11-tab-nonsub.js"></script>
+<script src="js/12-tab-img-renewal.js"></script>
+<script src="js/13-filters.js"></script>
+<script src="js/14-app.js"></script>
+</body>
+</html>
