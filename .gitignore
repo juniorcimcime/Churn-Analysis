@@ -1,4 +1,6 @@
-*.csv 
-data/ 
-python/*.pkl 
-node_modules/ 
+*.csv
+data/
+python/*.pkl
+node_modules/
+!sample_data/sample_1day.csv
+
